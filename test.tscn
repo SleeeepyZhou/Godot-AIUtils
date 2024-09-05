@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://b0edn3p51l3a3"]
-
-[ext_resource type="Script" path="res://addons/AIApiUtils/ApiUtils.gd" id="1_xos47"]
-
-[node name="AIApi" type="Node"]
-script = ExtResource("1_xos47")

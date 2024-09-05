@@ -1,6 +1,5 @@
-@tool
 extends Node
-
+class_name APIUtils
 ## 数据预处理
 
 # 图片压缩及转码
