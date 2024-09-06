@@ -1,5 +1,4 @@
 extends Node
-class_name APIUtils
 ## 数据预处理
 
 # 图片压缩及转码
@@ -33,7 +32,7 @@ func image_to_base64(path : String, quality : String = "auto") -> String:
 	var image = zip_image(path, quality)
 	return Marshalls.raw_to_base64(image.save_jpg_to_buffer(0.90))
 
-# 提示词
+# 动态提示词
 func addition_prompt(text : String, image_path : String = "") -> String: # 提示词，图片路径
 	if '{' not in text or '}' not in text:
 		return text
@@ -47,7 +46,8 @@ func addition_prompt(text : String, image_path : String = "") -> String: # 提�
 		file.close()
 	return text.replace("{" + dir_path + "}", file_content)
 
-# 用户数据
+
+## 用户数据
 const SAVEPATH = "user://data.api"
 func reset():
 	var access = DirAccess.open(SAVEPATH.get_base_dir())
@@ -57,15 +57,17 @@ func api_save(data : Array = ["https://api.openai.com/v1/chat/completions", ""])
 	save_data.store_var(data)
 	save_data.close()
 func readsave():
-	var save_data
+	var save_data : Array = ["https://api.openai.com/v1/chat/completions", ""]
 	if FileAccess.file_exists(SAVEPATH):
 		var data = FileAccess.open(SAVEPATH, FileAccess.READ).get_var()
 		if not data:
-			return
+			data = save_data
 		save_data = data
 	else:
 		api_save()
 		save_data = readsave()
+	api_url = save_data[0]
+	api_key = save_data[1]
 	return save_data
 
 
@@ -76,31 +78,34 @@ var maxhttp : int = 10
 var is_run : bool = false
 
 # API运行
-@export var api_url : String
-@export var api_key : String
-@export var api_mod : int = 0
-@export_enum("high", "low", "auto") var img_quality : String = "auto"
-@export var time_out : int = 10
+var api_url : String
+var api_key : String
 
+var time_out : int = 10
+const QUALITY = ["high", "low", "auto"]
 const API_TYPE = ["gpt-4o-2024-08-06", "gpt-4o-mini", "qwen-vl-plus", \
-					"qwen-vl-max", "claude", "gemini-1.5-pro-exp-0801"]
+				"qwen-vl-max", "claude", "gemini-1.5-pro-exp-0801", "local"]
 
 var API_FUNC : Array[Callable] = [Callable(self,"openai_api"), 
 								Callable(self,"openai_api"),
 								Callable(self,"qwen_api"), 
 								Callable(self,"qwen_api"), 
 								Callable(self,"claude_api"),
-								Callable(self,"gemini_api")]
+								Callable(self,"gemini_api"),
+								Callable(self,"openai_api")]
 
-func run_api(prompt : String, image_path : String = "", out : int = 10) -> String:
-	var apidata : Array[String] = [api_url, api_key]
-	api_save(apidata)
-	if image_path.is_empty():
-		return "There are no pictures."
-	var base64image = image_to_base64(image_path, img_quality)
-	var current_prompt = addition_prompt(prompt, image_path)
-	time_out = out
-	var result = await API_FUNC[api_mod].call(current_prompt, base64image)
+func run_api(prompt : String, mod : int = 0, image_path : String = "", \
+			format_set : int = -1, image_quality : int = 2, timeout : int = 10) -> String:
+	readsave()
+	var quality = QUALITY[image_quality]
+	var api_mod : String = API_TYPE[mod]
+	formatrespon = format_set
+	var base64image : String = ""
+	if !image_path.is_empty():
+		base64image = image_to_base64(image_path, quality)
+	var current_prompt : String = addition_prompt(prompt, image_path)
+	time_out = timeout
+	var result = await API_FUNC[mod].call([current_prompt, base64image, api_mod, quality])
 	return result
 
 # 标准化收发
@@ -147,14 +152,28 @@ func request_retry(head : PackedStringArray, data : String, url : String) -> Str
 		else:
 			return result
 	else:
-		return "Error: Unknown error"
+		return "Error: Unknown error. Status:" + str(received[1]) + received[3].get_string_from_utf8()
 
 
 ## 各家API模块
 
-var formatrespon : bool = false
+# 结构化输出
+const path_format = "res://addons/AIApiUtils/Res/format.gd"
+var formatrespon : int = -1:
+	set(i):
+		if i > -1:
+			formatrespon = i
+			var format_save = load(path_format).new()
+			format = format_save.format_save[i]
 var format : Dictionary = {}
+var format_list : Array = []:
+	get:
+		var format_save = load(path_format).new()
+		format_list = format_save.format_list
+		return format_list
+
 '''
+示例结构
 {"type": "json_schema",
 "json_schema": {"name": "image_analysis_response",
 				"strict": true,
@@ -174,9 +193,14 @@ var format : Dictionary = {}
 }
 '''
 
-func openai_api(inputprompt : String, base64image : String):
+
+func openai_api(input : Array) -> String:
+	var inputprompt = input[0]
+	var base64image = input[1]
+	var mod = input[2]
+	
 	var temp_data = {
-		"model": API_TYPE[api_mod],
+		"model": mod,
 		"messages": [
 				{
 				"role": "user",
@@ -184,7 +208,7 @@ func openai_api(inputprompt : String, base64image : String):
 						[{"type": "image_url", 
 						"image_url":
 							{"url": "data:image/jpeg;base64," + base64image,
-							"detail": img_quality}
+							"detail": input[3]}
 						},
 						{"type": "text", "text": inputprompt}]
 				}
@@ -193,7 +217,7 @@ func openai_api(inputprompt : String, base64image : String):
 		}
 	var headers : PackedStringArray = ["Content-Type: application/json", 
 										"Authorization: Bearer " + api_key]
-	if formatrespon and !is_run:
+	if formatrespon > -1 and !is_run:
 		format = %SchemaBox.send()
 		if !format.is_empty():
 			temp_data["response_format"] = format
@@ -209,49 +233,21 @@ func openai_api(inputprompt : String, base64image : String):
 			if json_result.has("choices") and json_result["choices"].size() > 0 and\
 					json_result["choices"][0].has("message") and\
 					json_result["choices"][0]["message"].has("content"):
-				var format_respon = JSON.parse_string(json_result["choices"][0]["message"]["content"])
-				if format.is_empty() and !format_respon:
-					answer = json_result["choices"][0]["message"]["content"]
-				else:
-					answer = get_openai_format_answer(format_respon)
+				answer = json_result["choices"][0]["message"]["content"]
 			else:
 				answer = str(json_result)
 		return answer
-	elif !result[0]:
-		return result[1]
-var batchmod = false
-func get_openai_format_answer(json : Dictionary, tab : int = 0) -> String:
-	var answer : String = ""
-	if batchmod:
-		for key in json:
-			var unit_answer : String
-			if json[key] is Dictionary:
-				unit_answer = get_openai_format_answer(json[key])
-			else:
-				unit_answer = str(json[key]) + ", "
-			answer = unit_answer + answer
 	else:
-		for key in json:
-			var unit_answer : String
-			if json[key] is Dictionary:
-				unit_answer = "\n" + get_openai_format_answer(json[key], tab + 1)
-			else:
-				unit_answer = str(json[key])
-			var _tab : String
-			var tabar : Array = []
-			tabar.resize(tab)
-			tabar.fill("\t")
-			_tab = "".join(tabar)
-			answer = answer + _tab + key + ": " + unit_answer + ", \n"
-		while answer.ends_with(", \n"):
-			answer = answer.substr(0, len(answer) - 3)
-	return answer
+		return result[1]
 
 
-func gemini_api(inputprompt : String, base64image : String):
+func gemini_api(input) -> String:
+	var inputprompt = input[0]
+	var base64image = input[1]
+	
 	var tempprompt = inputprompt
 	#var gemini_format
-	#if formatrespon and !is_run:
+	#if formatrespon > -1 and !is_run:
 		#format = %SchemaBox.send()
 		#if !format.is_empty():
 			#gemini_format = format["json_schema"]["schema"]  "properties"  "required"
@@ -283,66 +279,18 @@ func gemini_api(inputprompt : String, base64image : String):
 					(json_result["candidates"][0]["content"].has("parts") and \
 					json_result["candidates"][0]["content"]["parts"].size() > 0) and \
 					json_result["candidates"][0]["content"]["parts"][0].has("text"):
-				var format_respon = JSON.parse_string(json_result["candidates"][0]["content"]["parts"][0]["text"])
-				if format.is_empty() and !format_respon:
-					answer = json_result["candidates"][0]["content"]["parts"][0]["text"]
-				else:
-					answer = get_gemini_format_answer(format_respon)
+				answer = json_result["candidates"][0]["content"]["parts"][0]["text"]
 			else:
 				answer = str(json_result)
 		return answer
-	elif !result[0]:
+	else:
 		return result[1]
-func get_gemini_format_answer(json : Dictionary):
-	var answer : String = ""
-	for key in json:
-		var unit_answer : String
-		if json[key] is Dictionary:
-			unit_answer = get_gemini_format_answer(json[key])
-		else:
-			unit_answer = str(json[key]) + ", "
-		answer = (unit_answer + answer).format(" ","[").format(" ", "]")
-	return answer
 
 
-func qwen_api(inputprompt : String, base64image : String) -> String:
-	var data = JSON.stringify({
-		"model": API_TYPE[api_mod],
-		"input": {
-			"messages": [
-				{"role": "system",
-				"content": [{"text": "You are a helpful assistant."}]},
-				{"role": "user",
-				"content": [{"image": "data:image/jpeg;base64," + base64image},
-							{"text": inputprompt}]}
-						]
-				}
-								})
-	var headers : PackedStringArray = ["Authorization: Bearer " + api_key,
-										"Content-Type: application/json"]
+func claude_api(input) -> String:
+	var inputprompt = input[0]
+	var base64image = input[1]
 	
-	var result = await get_result(headers, data)
-	var answer = ""
-	if result[0]:
-		var json_result = result[1]
-		if json_result != null:
-			# 安全地尝试
-			if json_result.has("output") and\
-				json_result["output"].has("choices") and\
-				json_result["output"]["choices"].size() > 0 and\
-				json_result["output"]["choices"][0].has("message") and\
-				json_result["output"]["choices"][0]["message"].has("content") and\
-				json_result["output"]["choices"][0]["message"]["content"].size() > 0 and\
-				json_result["output"]["choices"][0]["message"]["content"][0].has("text"):
-				answer = json_result["output"]["choices"][0]["message"]["content"][0]["text"]
-			else:
-				answer = str(json_result)
-	elif !result[0]:
-		answer = result[1]
-	return answer
-
-
-func claude_api(inputprompt : String, base64image : String) -> String:
 	var data = JSON.stringify({
 		"model": "claude_api",
 		"max_tokens": 300,
@@ -379,4 +327,45 @@ func claude_api(inputprompt : String, base64image : String) -> String:
 		return answer
 	else:
 		return result[1]
+
+
+func qwen_api(input) -> String:
+	var inputprompt = input[0]
+	var base64image = input[1]
+	var mod = input[2]
+	
+	var data = JSON.stringify({
+		"model": mod,
+		"input": {
+			"messages": [
+				{"role": "system",
+				"content": [{"text": "You are a helpful assistant."}]},
+				{"role": "user",
+				"content": [{"image": "data:image/jpeg;base64," + base64image},
+							{"text": inputprompt}]}
+						]
+				}
+								})
+	var headers : PackedStringArray = ["Authorization: Bearer " + api_key,
+										"Content-Type: application/json"]
+	
+	var result = await get_result(headers, data)
+	var answer = ""
+	if result[0]:
+		var json_result = result[1]
+		if json_result != null:
+			# 安全地尝试
+			if json_result.has("output") and\
+				json_result["output"].has("choices") and\
+				json_result["output"]["choices"].size() > 0 and\
+				json_result["output"]["choices"][0].has("message") and\
+				json_result["output"]["choices"][0]["message"].has("content") and\
+				json_result["output"]["choices"][0]["message"]["content"].size() > 0 and\
+				json_result["output"]["choices"][0]["message"]["content"][0].has("text"):
+				answer = json_result["output"]["choices"][0]["message"]["content"][0]["text"]
+			else:
+				answer = str(json_result)
+	elif !result[0]:
+		answer = result[1]
+	return answer
 
