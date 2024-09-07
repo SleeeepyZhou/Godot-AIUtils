@@ -18,7 +18,6 @@ config/icon="res://addons/AIApiUtils/key.png"
 [autoload]
 
 API="*res://addons/AIApiUtils/Api.gd"
-Test="*res://res/test1.gd"
 
 [editor_plugins]
 
