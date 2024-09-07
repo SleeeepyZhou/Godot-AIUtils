@@ -3,10 +3,10 @@ extends EditorPlugin
 
 var api_config = preload("res://addons/AIApiUtils/Res/config.tscn").instantiate()
 
-const FORMATSAVE = "res://addons/AIApiUtils/Res/format.gd"
+const FORMATSAVE = "res://addons/AIApiUtils/Lib/format.gd"
 
 func _enter_tree():
-	add_control_to_bottom_panel(api_config, "APIConfig")
+	add_control_to_bottom_panel(api_config, "VLMAPIConfig")
 	add_autoload_singleton("API", "res://addons/AIApiUtils/Api.gd")
 	if !FileAccess.file_exists(FORMATSAVE):
 		var data = FileAccess.open(FORMATSAVE, FileAccess.WRITE)

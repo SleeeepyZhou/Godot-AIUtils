@@ -82,6 +82,7 @@ var api_url : String
 var api_key : String
 
 var time_out : int = 10
+
 const QUALITY = ["high", "low", "auto"]
 const API_TYPE = ["gpt-4o-2024-08-06", "gpt-4o-mini", "qwen-vl-plus", \
 				"qwen-vl-max", "claude", "gemini-1.5-pro-exp-0801", "local"]
@@ -95,17 +96,17 @@ var API_FUNC : Array[Callable] = [Callable(self,"openai_api"),
 								Callable(self,"openai_api")]
 
 func run_api(prompt : String, mod : int = 0, image_path : String = "", \
-			format_set : int = -1, image_quality : int = 2, timeout : int = 10) -> String:
+			image_quality : int = 2, timeout : int = 10, format_set : Dictionary = {}) -> String:
 	readsave()
 	var quality = QUALITY[image_quality]
 	var api_mod : String = API_TYPE[mod]
-	formatrespon = format_set
+	format = format_set
 	var base64image : String = ""
 	if !image_path.is_empty():
 		base64image = image_to_base64(image_path, quality)
 	var current_prompt : String = addition_prompt(prompt, image_path)
 	time_out = timeout
-	var result = await API_FUNC[mod].call([current_prompt, base64image, api_mod, quality])
+	var result = await API_FUNC[mod].call([current_prompt, base64image, api_mod, quality]) # 词，图，模，质
 	return result
 
 # 标准化收发
@@ -157,21 +158,6 @@ func request_retry(head : PackedStringArray, data : String, url : String) -> Str
 
 ## 各家API模块
 
-# 结构化输出
-const path_format = "res://addons/AIApiUtils/Res/format.gd"
-var formatrespon : int = -1:
-	set(i):
-		if i > -1:
-			formatrespon = i
-			var format_save = load(path_format).new()
-			format = format_save.format_save[i]
-var format : Dictionary = {}
-var format_list : Array = []:
-	get:
-		var format_save = load(path_format).new()
-		format_list = format_save.format_list
-		return format_list
-
 '''
 示例结构
 {"type": "json_schema",
@@ -193,37 +179,41 @@ var format_list : Array = []:
 }
 '''
 
+# 结构化输出
+var format : Dictionary = {}
 
 func openai_api(input : Array) -> String:
-	var inputprompt = input[0]
-	var base64image = input[1]
-	var mod = input[2]
+	# 取参
+	var inputprompt : String = input[0]
+	var base64image : String = input[1]
+	var mod : String = input[2]
 	
+	# 构造
 	var temp_data = {
 		"model": mod,
 		"messages": [
 				{
 				"role": "user",
 				"content":
-						[{"type": "image_url", 
-						"image_url":
-							{"url": "data:image/jpeg;base64," + base64image,
-							"detail": input[3]}
-						},
-						{"type": "text", "text": inputprompt}]
+						[{"type": "text", "text": inputprompt}]
 				}
 					],
 		"max_tokens": 300
 		}
 	var headers : PackedStringArray = ["Content-Type: application/json", 
 										"Authorization: Bearer " + api_key]
-	if formatrespon > -1 and !is_run:
-		format = %SchemaBox.send()
-		if !format.is_empty():
-			temp_data["response_format"] = format
+	if !format.is_empty() and !is_run:
+		temp_data["response_format"] = format
+	if !base64image.is_empty():
+		temp_data["messages"][0]["content"].push_front(
+							{"type": "image_url", 
+							"image_url":
+								{"url": "data:image/jpeg;base64," + base64image,
+								"detail": input[3]}})
 	var data = JSON.stringify(temp_data)
 	is_run = true
 	
+	# 结果
 	var result = await get_result(headers, data)
 	if result[0]:
 		var answer : String = ""
@@ -240,10 +230,10 @@ func openai_api(input : Array) -> String:
 	else:
 		return result[1]
 
-
+# 词，图，模，质
 func gemini_api(input) -> String:
-	var inputprompt = input[0]
-	var base64image = input[1]
+	var inputprompt : String = input[0]
+	var base64image : String = input[1]
 	
 	var tempprompt = inputprompt
 	#var gemini_format
@@ -255,16 +245,18 @@ func gemini_api(input) -> String:
 	if !("Return output in json format:" in inputprompt):
 		tempprompt += "Return output in json format: {description: description, \
 						features: [feature1, feature2, feature3, etc]}"
-	var data = JSON.stringify(
-			{
+	var tempdata = {
 			"contents": [
 				{"parts": [
-						{"text": tempprompt},
-						{"inline_data": {"mime_type": "image/jpeg",
-										"data": base64image}}
+						{"text": tempprompt}
 							]}
 						]
-			})
+			}
+	if !base64image.is_empty():
+		tempdata["contents"][0]["parts"].append({"inline_data": {
+										"mime_type": "image/jpeg",
+										"data": base64image}})
+	var data = JSON.stringify(tempdata)
 	var headers : PackedStringArray = ["Content-Type: application/json"]
 	var url : String = api_url + "/models/gemini-1.5-pro-exp-0801:generateContent?key=" + api_key
 	# https://generativelanguage.googleapis.com/v1beta
@@ -288,26 +280,28 @@ func gemini_api(input) -> String:
 
 
 func claude_api(input) -> String:
-	var inputprompt = input[0]
-	var base64image = input[1]
+	var inputprompt : String = input[0]
+	var base64image : String = input[1]
 	
-	var data = JSON.stringify({
+	var temp_data = {
 		"model": "claude_api",
 		"max_tokens": 300,
 		"messages": [{
 					"role": "user", 
 					"content": [{
-							"type": "image", 
-							"source": {"type": "base64",
-									"media_type": "image/jpeg",
-									"data": base64image}
-								},
-								{
 							"type": "text", 
 							"text": inputprompt
 								}]
 					}]
-							})
+							}
+	if !base64image.is_empty():
+		temp_data["messages"][0]["content"].push_front({
+							"type": "image", 
+							"source": {"type": "base64",
+										"media_type": "image/jpeg",
+										"data": base64image}
+														})
+	var data = JSON.stringify(temp_data)
 	var headers : PackedStringArray = ["Content-Type: application/json",
 			"x-api-key:" + api_key,
 			"anthropic-version: 2023-06-01"]
@@ -330,22 +324,24 @@ func claude_api(input) -> String:
 
 
 func qwen_api(input) -> String:
-	var inputprompt = input[0]
-	var base64image = input[1]
-	var mod = input[2]
+	var inputprompt : String = input[0]
+	var base64image : String = input[1]
+	var mod : String = input[2]
 	
-	var data = JSON.stringify({
+	var tempdata = {
 		"model": mod,
 		"input": {
 			"messages": [
 				{"role": "system",
 				"content": [{"text": "You are a helpful assistant."}]},
 				{"role": "user",
-				"content": [{"image": "data:image/jpeg;base64," + base64image},
-							{"text": inputprompt}]}
+				"content": [{"text": inputprompt}]}
 						]
 				}
-								})
+					}
+	if !base64image.is_empty():
+		tempdata["input"]["messages"][1]["content"].push_front({"image": "data:image/jpeg;base64," + base64image})
+	var data = JSON.stringify(tempdata)
 	var headers : PackedStringArray = ["Authorization: Bearer " + api_key,
 										"Content-Type: application/json"]
 	
