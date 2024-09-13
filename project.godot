@@ -13,7 +13,7 @@ config_version=5
 config/name="AIApiUtils"
 config/tags=PackedStringArray("godot2024")
 config/features=PackedStringArray("4.2", "GL Compatibility")
-config/icon="res://addons/AIApiUtils/key.png"
+config/icon="res://addons/AIApiUtils/Res/key.png"
 
 [autoload]
 
