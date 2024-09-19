@@ -29,6 +29,8 @@ func zip_image(path : String, quality : String = "auto") -> Image:
 	image.resize(new_width, new_height)
 	return image
 func image_to_base64(path : String, quality : String = "auto") -> String:
+	if !IMAGE_TYPE.has(path.get_extension().to_upper()):
+		return ""
 	var image = zip_image(path, quality)
 	return Marshalls.raw_to_base64(image.save_jpg_to_buffer(0.90))
 
