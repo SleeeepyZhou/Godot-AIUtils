@@ -82,7 +82,6 @@ var is_run : bool = false
 # API运行
 var api_url : String
 var api_key : String
-
 var time_out : int = 10
 
 const QUALITY = ["high", "low", "auto"]
