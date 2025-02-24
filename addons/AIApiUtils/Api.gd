@@ -59,5 +59,3 @@ func run_VLMapi(prompt : String, api_mod : int = 0, timeout : int = 10, image_pa
 	api_mod = clampi(api_mod, 0, VLMutils.API_TYPE.size() - 1)
 	image_quality = clampi(image_quality, 0, 2)
 	return await VLMutils.run_api(prompt, api_mod, image_path, image_quality, timeout, format)
-
-

@@ -365,4 +365,3 @@ func qwen_api(input) -> String:
 	elif !result[0]:
 		answer = result[1]
 	return answer
-

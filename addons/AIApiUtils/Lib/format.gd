@@ -1,4 +1,5 @@
 extends Node
 
-const format_list =[]
-var format_save =[]
+const example_schema={  }
+const format_list =["example_schema"]
+var format_save =[example_schema]
